@@ -1,0 +1,7 @@
+{
+  "profiles": {
+    "MicroRabbit.Domain.Core": {
+      "commandName": "Project"
+    }
+  }
+}
