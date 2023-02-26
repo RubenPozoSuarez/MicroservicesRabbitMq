@@ -2,6 +2,7 @@
 using MicroRabbit.Domain.Core.Bus;
 using MicroRabbit.Domain.Core.Commands;
 using MicroRabbit.Domain.Core.Events;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using RabbitMQ.Client;
@@ -16,10 +17,12 @@ namespace MicroRabbit.Infra.Bus
         private readonly IMediator _mediator;
         private readonly Dictionary<string, List<Type>> _handlers;
         private readonly List<Type> _eventTypes;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
 
-        public RabbitMQBus(IMediator mediator, IOptions<RabbitMQSettings> settings)
+        public RabbitMQBus(IMediator mediator, IServiceScopeFactory serviceScopeFactory, IOptions<RabbitMQSettings> settings)
         {
             _mediator = mediator;
+            _serviceScopeFactory = serviceScopeFactory;
             _handlers = new Dictionary<string, List<Type>>();
             _eventTypes = new List<Type>();
             _settings = settings.Value;
@@ -128,28 +131,30 @@ namespace MicroRabbit.Infra.Bus
             //Comprobamos que el manejador contiene el queue
             if(_handlers.ContainsKey(eventName))
             {
-                //estas seran las subscripciones que hay en la queue
-                var subscriptions = _handlers[eventName];
-
-                //Las recorremos
-                foreach (var subscription in subscriptions)
+                using (var scope = _serviceScopeFactory.CreateScope())
                 {
-                    //Instanciamos al consumer
-                    var handler = Activator.CreateInstance(subscription);
-                    if (handler == null)
-                        continue;
+                    //estas seran las subscripciones que hay en la queue
+                    var subscriptions = _handlers[eventName];
 
-                    //Buscamos el tipo de evento
-                    var eventType = _eventTypes.SingleOrDefault(t => t.Name == eventName);
-                    //Convertimos el objeto de tipo json
-                    var @event = JsonConvert.DeserializeObject(message, eventType);
-                    //concreteType representa al consumer
-                    var concreteType = typeof(IEventHandler<>).MakeGenericType(eventType);
+                    //Las recorremos
+                    foreach (var subscription in subscriptions)
+                    {
+                        //Instanciamos al consumer (La parte comentada seria sin utilizar la dependencia de microsoft y teniendo un constructor vacio en cada EventHandler
+                        var handler = scope.ServiceProvider.GetService(subscription);  //Activator.CreateInstance(subscription);
+                        if (handler == null)
+                            continue;
 
-                    //El consumer disparara el método Handle
-                    await (Task)concreteType.GetMethod("Handle").Invoke(handler, new object[] { @event });
+                        //Buscamos el tipo de evento
+                        var eventType = _eventTypes.SingleOrDefault(t => t.Name == eventName);
+                        //Convertimos el objeto de tipo json
+                        var @event = JsonConvert.DeserializeObject(message, eventType);
+                        //concreteType representa al consumer
+                        var concreteType = typeof(IEventHandler<>).MakeGenericType(eventType);
+
+                        //El consumer disparara el método Handle
+                        await (Task)concreteType.GetMethod("Handle").Invoke(handler, new object[] { @event });
+                    }
                 }
-
             }
                 
         }

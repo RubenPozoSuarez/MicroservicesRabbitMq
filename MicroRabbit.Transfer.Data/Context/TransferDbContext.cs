@@ -9,7 +9,7 @@ namespace MicroRabbit.Transfer.Data.Context
         {
 
         }
-        
+
         public DbSet<TransferLog> TransferLogs { get; set; }
     }
 }
